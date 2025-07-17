@@ -1,67 +1,52 @@
 import os
 import pandas as pd
 import pdfplumber
-import re
-import streamlit as st  # 👈 log to Streamlit UI
 
-def extract_model_name_from_filename(filename):
-    return filename.replace("_JULY25.pdf", "").replace("_", " ").strip()
-
-def extract_rows_from_text(lines, debug=False):
+def convert_all_pdfs(pdf_dir):
     rows = []
-    for line in lines:
-        if not line.strip():
-            continue
-        if "₹" in line:
-            prices = re.findall(r"₹[\d,]+", line)
-            if prices:
-                if debug:
-                    st.write(f"🟡 Matched Line: `{line}` → `{prices}`")
-                rows.append([line.strip()] + prices[:4])
-    return rows
-
-def convert_all_pdfs(pdf_folder_path="price-pdfs"):
-    all_data = []
-
-    for filename in os.listdir(pdf_folder_path):
-        if not filename.endswith(".pdf"):
-            continue
-
-        file_path = os.path.join(pdf_folder_path, filename)
-        model_name = extract_model_name_from_filename(filename)
-
-        try:
-            with pdfplumber.open(file_path) as pdf:
-                text_lines = []
+    for filename in os.listdir(pdf_dir):
+        if filename.endswith(".pdf"):
+            pdf_path = os.path.join(pdf_dir, filename)
+            print(f"Processing {pdf_path}")
+            with pdfplumber.open(pdf_path) as pdf:
                 for page in pdf.pages:
                     text = page.extract_text()
-                    if text:
-                        lines = text.split('\n')
-                        text_lines.extend(lines)
-
-            st.write(f"📄 **Processing PDF**: `{filename}`")
-            st.write("📝 **First 10 lines from PDF:**")
-            st.code("\n".join(text_lines[:10]))
-
-            extracted_rows = extract_rows_from_text(text_lines, debug=True)
-            st.write(f"✅ Rows found: `{len(extracted_rows)}`")
-
-            if extracted_rows:
-                df = pd.DataFrame(
-                    extracted_rows,
-                    columns=["Variant Info", "Price 1", "Price 2", "Price 3", "Price 4"]
-                )
-                df.insert(0, "Model Name", model_name)
-                all_data.append(df)
-
-        except Exception as e:
-            st.error(f"❌ Error reading {filename}: {e}")
-            continue
-
-    if all_data:
-        final_df = pd.concat(all_data, ignore_index=True)
-        output_path = os.path.join(pdf_folder_path, "master_price_list.xlsx")
-        final_df.to_excel(output_path, index=False)
-        return output_path
-    else:
+                    if not text:
+                        continue
+                    lines = text.split('\n')
+                    for line in lines:
+                        # Skip header lines
+                        if line.strip().startswith("MODEL NAME") or "Insurance" in line:
+                            continue
+                        # Heuristics: if line contains ₹ more than once, assume it's a data row
+                        if line.count("₹") >= 2:
+                            rows.append(parse_line(line))
+    if not rows:
+        print("No rows found.")
         return None
+
+    df = pd.DataFrame(rows)
+    excel_path = os.path.join(pdf_dir, "master_sheet.xlsx")
+    df.to_excel(excel_path, index=False)
+    print(f"Saved to {excel_path}")
+    return excel_path
+
+
+def parse_line(line):
+    """
+    Example line:
+    MX1 PM MT ₹ 7,99,000 ₹ 0 ₹ 55,729 ₹ 25,000 ₹ 19,975 ₹ 15,500 ₹ 25,999 ₹ 3,020 ₹ …
+    """
+    parts = line.split()
+    model = []
+    numbers = []
+    for part in parts:
+        if "₹" in part or part.replace(",", "").isdigit():
+            numbers.append(part)
+        else:
+            model.append(part)
+
+    return {
+        "Model": " ".join(model),
+        "Values": " ".join(numbers)
+    }
