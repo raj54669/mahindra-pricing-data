@@ -2,19 +2,21 @@ import os
 import pandas as pd
 import pdfplumber
 import re
+import streamlit as st  # 👈 log to Streamlit UI
 
 def extract_model_name_from_filename(filename):
     return filename.replace("_JULY25.pdf", "").replace("_", " ").strip()
 
-def extract_rows_from_text(lines):
+def extract_rows_from_text(lines, debug=False):
     rows = []
     for line in lines:
         if not line.strip():
             continue
-
         if "₹" in line:
             prices = re.findall(r"₹[\d,]+", line)
             if prices:
+                if debug:
+                    st.write(f"🟡 Matched Line: `{line}` → `{prices}`")
                 rows.append([line.strip()] + prices[:4])
     return rows
 
@@ -37,14 +39,12 @@ def convert_all_pdfs(pdf_folder_path="price-pdfs"):
                         lines = text.split('\n')
                         text_lines.extend(lines)
 
-            # 🔍 Debug print - show first few lines of text
-            print(f"\n📄 Processing: {filename}")
-            print("📝 First 10 lines from PDF:")
-            for i, line in enumerate(text_lines[:10]):
-                print(f"{i+1:02}: {line}")
+            st.write(f"📄 **Processing PDF**: `{filename}`")
+            st.write("📝 **First 10 lines from PDF:**")
+            st.code("\n".join(text_lines[:10]))
 
-            extracted_rows = extract_rows_from_text(text_lines)
-            print(f"✅ Rows found in {filename}: {len(extracted_rows)}")
+            extracted_rows = extract_rows_from_text(text_lines, debug=True)
+            st.write(f"✅ Rows found: `{len(extracted_rows)}`")
 
             if extracted_rows:
                 df = pd.DataFrame(
@@ -55,7 +55,7 @@ def convert_all_pdfs(pdf_folder_path="price-pdfs"):
                 all_data.append(df)
 
         except Exception as e:
-            print(f"❌ Error processing {filename}: {e}")
+            st.error(f"❌ Error reading {filename}: {e}")
             continue
 
     if all_data:
