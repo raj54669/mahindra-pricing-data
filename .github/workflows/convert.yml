@@ -1,0 +1,34 @@
+
+name: Convert PDFs to Excel
+
+on:
+  push:
+    paths:
+      - 'price-pdfs/*.pdf'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          sudo apt install ghostscript -y
+          pip install camelot-py[cv] pandas openpyxl
+
+      - name: Run conversion script
+        run: python scripts/convert_pdfs_to_excel.py
+
+      - name: Commit master Excel
+        run: |
+          git config --global user.name "AutoBot"
+          git config --global user.email "autobot@example.com"
+          git add output/PV\ Price\ List\ Master.xlsx
+          git commit -m "Auto-update master Excel"
+          git push
