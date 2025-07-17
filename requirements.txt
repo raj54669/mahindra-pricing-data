@@ -4,3 +4,4 @@ pandas
 camelot-py[cv]
 openpyxl
 pdfplumber
+PyPDF2
