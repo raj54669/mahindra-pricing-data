@@ -11,10 +11,11 @@ def extract_rows_from_text(lines):
     for line in lines:
         if not line.strip():
             continue
-        if "₹" in line and any(x in line for x in ["MX", "AX"]):
-            price_matches = re.findall(r"₹[\d,]+", line)
-            if len(price_matches) >= 4:
-                rows.append([line.strip()] + price_matches[:4])
+
+        if "₹" in line:
+            prices = re.findall(r"₹[\d,]+", line)
+            if prices:
+                rows.append([line.strip()] + prices[:4])
     return rows
 
 def convert_all_pdfs(pdf_folder_path="price-pdfs"):
@@ -31,18 +32,19 @@ def convert_all_pdfs(pdf_folder_path="price-pdfs"):
             with pdfplumber.open(file_path) as pdf:
                 text_lines = []
                 for page in pdf.pages:
-                    lines = page.extract_text().split('\n')
-                    text_lines.extend(lines)
+                    text = page.extract_text()
+                    if text:
+                        lines = text.split('\n')
+                        text_lines.extend(lines)
 
-            # Debug output
-            print(f"📄 Processing: {filename}")
-            print("🔍 Model Name:", model_name)
-            print("📜 First 10 lines from PDF:")
+            # 🔍 Debug print - show first few lines of text
+            print(f"\n📄 Processing: {filename}")
+            print("📝 First 10 lines from PDF:")
             for i, line in enumerate(text_lines[:10]):
                 print(f"{i+1:02}: {line}")
 
             extracted_rows = extract_rows_from_text(text_lines)
-            print("✅ Rows Extracted:", len(extracted_rows))
+            print(f"✅ Rows found in {filename}: {len(extracted_rows)}")
 
             if extracted_rows:
                 df = pd.DataFrame(
