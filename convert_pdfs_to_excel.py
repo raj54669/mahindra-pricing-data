@@ -1,31 +1,24 @@
-import os
-import pdfplumber
-import pandas as pd
+def convert_all_pdfs():
+    import os
+    import pandas as pd
+    import pdfplumber
 
-INPUT_FOLDER = "price-pdfs"
-OUTPUT_FILE = "PV Price List Master.xlsx"
+    all_data = []
 
-merged_data = []
-
-for file_name in os.listdir(INPUT_FOLDER):
-    if file_name.endswith(".pdf"):
-        file_path = os.path.join(INPUT_FOLDER, file_name)
-        print(f"📄 Processing {file_name}")
-        try:
-            with pdfplumber.open(file_path) as pdf:
+    for filename in os.listdir("price-pdfs"):
+        if filename.endswith(".pdf"):
+            pdf_path = os.path.join("price-pdfs", filename)
+            with pdfplumber.open(pdf_path) as pdf:
                 for page in pdf.pages:
-                    tables = page.extract_tables()
-                    for table in tables:
-                        df = pd.DataFrame(table)
-                        df["Source_File"] = file_name  # Optional: track which file the row came from
-                        merged_data.append(df)
-        except Exception as e:
-            print(f"❌ Failed to process {file_name}: {e}")
+                    table = page.extract_table()
+                    if table:
+                        df = pd.DataFrame(table[1:], columns=table[0])
+                        df["Source File"] = filename
+                        all_data.append(df)
 
-# Combine all data into one Excel file
-if merged_data:
-    final_df = pd.concat(merged_data, ignore_index=True)
-    final_df.to_excel(OUTPUT_FILE, index=False)
-    print(f"✅ Merged Excel saved to {OUTPUT_FILE}")
-else:
-    print("⚠️ No tables extracted from PDFs.")
+    if all_data:
+        combined_df = pd.concat(all_data, ignore_index=True)
+        output_path = "PV Price List Master.xlsx"
+        combined_df.to_excel(output_path, index=False)
+        return output_path
+    return None
