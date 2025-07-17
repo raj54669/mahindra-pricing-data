@@ -30,10 +30,12 @@ jobs:
 
       - name: Commit Excel file
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}  # ✅ use personal access token from Secrets
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
+          set -e  # Fail on error
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add "*.xlsx"
           git commit -m "Auto-update master Excel from PDFs" || echo "Nothing to commit"
-          git push https://x-access-token:${GH_PAT}@github.com/raj54669/mahindra-pricing-data.git HEAD:main
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/raj54669/mahindra-pricing-data.git
+          git push origin HEAD:main
