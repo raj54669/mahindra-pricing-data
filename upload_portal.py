@@ -1,40 +1,32 @@
 import streamlit as st
-from github import Github
+import os
+from convert_pdfs_to_excel import convert_all_pdfs
 
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO_NAME = st.secrets["GITHUB_REPO"]
-BRANCH = st.secrets["GITHUB_BRANCH"]
-UPLOAD_PATH = st.secrets["PDF_UPLOAD_PATH"]
+st.set_page_config(page_title="PDF to Excel Converter", layout="centered")
 
-g = Github(GITHUB_TOKEN)
-repo = g.get_repo(REPO_NAME)
+st.title("📄 Mahindra Price List Converter")
+st.write("Upload PDF files to generate an Excel master sheet.")
 
-st.set_page_config(page_title="PDF Uploader", layout="centered")
-st.title("📤 Upload Price List PDF to GitHub")
-st.caption("Upload model-wise price list PDF files. They'll automatically update the pricing viewer.")
+uploaded_files = st.file_uploader("Upload PDF files", type="pdf", accept_multiple_files=True)
 
-uploaded_file = st.file_uploader("Select a Price List PDF", type="pdf")
+if uploaded_files:
+    os.makedirs("price-pdfs", exist_ok=True)
+    
+    for file in uploaded_files:
+        with open(os.path.join("price-pdfs", file.name), "wb") as f:
+            f.write(file.getbuffer())
 
-if uploaded_file:
-    file_bytes = uploaded_file.read()
-    file_name = uploaded_file.name
-    file_path = f"{UPLOAD_PATH}{file_name}"
+    st.success("✅ Files uploaded successfully")
 
-    try:
-        existing = repo.get_contents(file_path, ref=BRANCH)
-        repo.update_file(
-            path=file_path,
-            message=f"Updated {file_name} via Streamlit",
-            content=file_bytes,
-            sha=existing.sha,
-            branch=BRANCH
-        )
-        st.success(f"✅ File '{file_name}' updated successfully.")
-    except:
-        repo.create_file(
-            path=file_path,
-            message=f"Added {file_name} via Streamlit",
-            content=file_bytes,
-            branch=BRANCH
-        )
-        st.success(f"✅ File '{file_name}' uploaded successfully.")
+    if st.button("Convert to Excel"):
+        excel_path = convert_all_pdfs()
+        if excel_path:
+            with open(excel_path, "rb") as f:
+                st.download_button(
+                    label="📥 Download Excel File",
+                    data=f,
+                    file_name=os.path.basename(excel_path),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        else:
+            st.error("❌ Conversion failed. Check PDF formats.")
