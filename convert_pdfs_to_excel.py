@@ -13,8 +13,8 @@ def extract_rows_from_text(lines):
             continue
         if "₹" in line and any(x in line for x in ["MX", "AX"]):
             price_matches = re.findall(r"₹[\d,]+", line)
-            if len(price_matches) >= 4:  # crude filter
-                rows.append([line.strip()] + price_matches[:4])  # keep first 4 prices
+            if len(price_matches) >= 4:
+                rows.append([line.strip()] + price_matches[:4])
     return rows
 
 def convert_all_pdfs(pdf_folder_path="price-pdfs"):
@@ -34,7 +34,15 @@ def convert_all_pdfs(pdf_folder_path="price-pdfs"):
                     lines = page.extract_text().split('\n')
                     text_lines.extend(lines)
 
+            # Debug output
+            print(f"📄 Processing: {filename}")
+            print("🔍 Model Name:", model_name)
+            print("📜 First 10 lines from PDF:")
+            for i, line in enumerate(text_lines[:10]):
+                print(f"{i+1:02}: {line}")
+
             extracted_rows = extract_rows_from_text(text_lines)
+            print("✅ Rows Extracted:", len(extracted_rows))
 
             if extracted_rows:
                 df = pd.DataFrame(
