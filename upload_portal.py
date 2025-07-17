@@ -30,17 +30,17 @@ if uploaded_files:
 
     # Button to trigger conversion
     if st.button("Convert to Excel"):
-        try:
-            excel_path = convert_all_pdfs("price-pdfs")
-            if excel_path and os.path.exists(excel_path):
-                with open(excel_path, "rb") as f:
-                    st.download_button(
-                        label="📥 Download Excel File",
-                        data=f,
-                        file_name=os.path.basename(excel_path),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-            else:
-                st.error("❌ Conversion failed. No valid pricing data found in the PDFs.")
-        except Exception as e:
-            st.error(f"❌ Conversion failed due to an error: {e}")
+    try:
+        excel_path = convert_all_pdfs("price-pdfs")
+        if excel_path and os.path.exists(excel_path):
+            with open(excel_path, "rb") as f:
+                st.download_button(
+                    label="📥 Download Excel File",
+                    data=f,
+                    file_name=os.path.basename(excel_path),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        else:
+            st.error("❌ Conversion failed. No valid pricing data found in the PDFs.")
+    except Exception as e:
+        st.error(f"❌ Conversion failed due to an error: {e}")
