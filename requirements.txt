@@ -3,3 +3,4 @@ PyGithub
 pandas
 camelot-py[cv]
 openpyxl
+pdfplumber
