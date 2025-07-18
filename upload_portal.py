@@ -65,7 +65,7 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
     extracted = []
     headers = target_columns[2:]
     for line in text_lines:
-        if 'MODEL' in line.upper():
+        if 'MODEL' in line.upper() or 'EX-SHOWROOM' in line.upper():
             continue  # Skip header lines
         if any(char.isdigit() for char in line):
             parts = re.split(r'\s{2,}', line.strip())
@@ -76,7 +76,7 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
                 }
                 for i, col in enumerate(headers):
                     if i < len(parts):
-                        value = clean_currency(parts[i]) if col != "Variant" else parts[i].strip()
+                        value = clean_currency(parts[i]) if col != "Variant" else re.sub(r'\s+', ' ', parts[i].strip())
                         record[col] = value if value else None
                 extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
