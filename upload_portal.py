@@ -8,6 +8,7 @@ import os
 import fitz  # PyMuPDF
 from github import Github
 from datetime import datetime
+from difflib import get_close_matches
 
 # --- ENV Secrets ---
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -63,28 +64,41 @@ def clean_currency(value):
 def parse_pdf(filepath, model, date_str, target_columns):
     all_data = []
 
+    def match_headers(columns):
+        matched = {}
+        for col in columns:
+            close = get_close_matches(col, target_columns[2:], n=1, cutoff=0.6)
+            if close:
+                matched[col] = close[0]
+        return matched
+
     for flavor in ['lattice', 'stream']:
-        tables = camelot.read_pdf(filepath, pages='all', flavor=flavor)
+        tables = camelot.read_pdf(filepath, pages='all', flavor=flavor, strip_text="\n")
         for table in tables:
             df = table.df
             df.columns = df.iloc[0]
-            df = df[1:]  # Drop header row
+            df = df[1:].copy()
 
-            if set(target_columns[2:]).issubset(df.columns):
-                df = df[target_columns[2:]]
+            matched_headers = match_headers(df.columns)
+            if len(matched_headers) >= 5:
+                df = df.rename(columns=matched_headers)
+                df = df[[*matched_headers.values()]]
                 df.insert(0, 'Price List D.', date_str)
                 df.insert(0, 'Model', model)
+
                 for col in df.columns:
                     df[col] = df[col].apply(clean_currency)
+
+                for col in target_columns:
+                    if col not in df.columns:
+                        df[col] = ""
+                df = df[target_columns]
                 all_data.append(df)
 
         if all_data:
             break
 
-    if all_data:
-        return pd.concat(all_data, ignore_index=True)
-    else:
-        return pd.DataFrame(columns=target_columns)
+    return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame(columns=target_columns)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Mahindra Price List Uploader")
