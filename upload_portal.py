@@ -5,6 +5,7 @@ import io
 import re
 import tempfile
 import os
+import fitz  # PyMuPDF
 from github import Github
 from datetime import datetime
 
@@ -42,11 +43,17 @@ def upload_to_github(filepath, github_path):
 
 # --- PDF Parser ---
 def extract_date_from_pdf(filepath):
-    with open(filepath, 'rb') as f:
-        text = f.read().decode(errors='ignore')
-    match = re.search(r'Price list.*?(\d{2}/\d{2}/\d{4})', text)
+    text = ""
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            text += page.get_text()
+
+    match = re.search(r'(\d{2}/\d{2}/\d{4})', text)
     if match:
-        return datetime.strptime(match.group(1), "%d/%m/%Y").date()
+        try:
+            return datetime.strptime(match.group(1), "%d/%m/%Y").date()
+        except:
+            return None
     return None
 
 def clean_currency(value):
@@ -61,17 +68,15 @@ def parse_pdf(filepath, model, date_str, target_columns):
         df.columns = df.iloc[0]
         df = df[1:]  # Drop header row
 
-        # Only process tables with all required columns
+        # Only keep rows with all required columns present
         if set(target_columns[2:]).issubset(df.columns):
             df = df[target_columns[2:]]
             df.insert(0, 'Price List D.', date_str)
             df.insert(0, 'Model', model)
-
+            # Clean ₹, commas etc
             for col in df.columns:
                 df[col] = df[col].apply(clean_currency)
-
             all_data.append(df)
-
     if all_data:
         return pd.concat(all_data, ignore_index=True)
     else:
@@ -122,20 +127,24 @@ if uploaded_files:
                 st.error("❌ No matching tables found in PDF.")
                 continue
 
+            # Reload master in case it was changed
             master_df = download_master_excel()
+
             duplicate_check = (master_df['Model'] == model) & (master_df['Price List D.'] == pd.to_datetime(date_obj))
 
             if duplicate_check.any():
                 if force_reprocess:
-                    master_df = master_df[~duplicate_check]
+                    master_df = master_df[~duplicate_check]  # Remove duplicates
                     st.warning("⚠️ Duplicate entry found. Overwriting as requested.")
                 else:
                     st.warning("⚠️ Duplicate entry. Skipping.")
                     continue
 
+            # Append new clean data
             combined_df = pd.concat([master_df, df_new], ignore_index=True)
             combined_df.to_excel("master_data.xlsx", index=False)
 
+            # Upload Excel and PDF to GitHub
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
