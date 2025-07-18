@@ -49,7 +49,6 @@ def extract_date_from_pdf(filepath):
     with fitz.open(filepath) as doc:
         for page in doc:
             text += page.get_text()
-
     match = re.search(r'(\d{2}/\d{2}/\d{4})', text)
     if match:
         try:
@@ -64,27 +63,32 @@ def clean_currency(value):
     val = re.sub(r'[\u20B9,\s]', '', str(value)).strip()
     return val if val else None
 
+def clean_variant(variant):
+    return re.sub(r'\s{2,}', ' ', variant.strip()) if variant else None
+
 def match_structure_and_clean(text_lines, model, date_str, target_columns):
-    extracted = []
     headers = target_columns[2:]
+    extracted = []
     for line in text_lines:
-        if 'MODEL' in line.upper() or 'EX-SHOWROOM' in line.upper():
-            continue  # Skip header lines
-        if any(char.isdigit() for char in line):
-            parts = re.split(r'\s{2,}', line.strip())
-            if len(parts) >= len(headers):
-                record = {
-                    "Model": model,
-                    "Price List D.": date_str
-                }
-                for i, col in enumerate(headers):
-                    if i < len(parts):
-                        if col == "Variant":
-                            variant = parts[i].strip()
-                            record[col] = re.sub(r'\s+', ' ', variant) if variant else None
-                        else:
-                            record[col] = clean_currency(parts[i])
-                extracted.append(record)
+        if any(h in line.upper() for h in ["MODEL", "EX-SHOWROOM", "RTO", "PRICE"]):
+            continue
+        if len(line.strip()) < 20:
+            continue
+        parts = re.split(r'\s{2,}', line.strip())
+        if len(parts) >= 2:
+            record = {
+                "Model": model,
+                "Price List D.": date_str
+            }
+            for i, col in enumerate(headers):
+                if i < len(parts):
+                    if col == "Variant":
+                        record[col] = clean_variant(parts[i])
+                    else:
+                        record[col] = clean_currency(parts[i])
+                else:
+                    record[col] = None
+            extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
 
 def fallback_parse_with_text(filepath, model, date_str, target_columns):
@@ -95,12 +99,13 @@ def fallback_parse_with_text(filepath, model, date_str, target_columns):
 
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
+    headers = target_columns[2:]
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
             if not table or len(table) < 2:
                 continue
-            for row in table[1:]:  # Skip header row
+            for row in table[1:]:
                 if not row or len(row) < 3:
                     continue
                 cleaned_row = [cell.strip() if cell else "" for cell in row]
@@ -108,13 +113,14 @@ def parse_pdf(filepath, model, date_str, target_columns):
                     "Model": model,
                     "Price List D.": date_str
                 }
-                for idx, cell in enumerate(cleaned_row):
-                    if idx + 2 < len(target_columns):
-                        col = target_columns[idx + 2]
+                for i, col in enumerate(headers):
+                    if i < len(cleaned_row):
                         if col == "Variant":
-                            record[col] = re.sub(r'\s+', ' ', cell.strip()) if cell.strip() else None
+                            record[col] = clean_variant(cleaned_row[i])
                         else:
-                            record[col] = clean_currency(cell) if cell.strip() else None
+                            record[col] = clean_currency(cleaned_row[i])
+                    else:
+                        record[col] = None
                 extracted_data.append(record)
 
     df = pd.DataFrame(extracted_data, columns=target_columns)
