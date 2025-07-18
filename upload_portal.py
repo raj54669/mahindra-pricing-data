@@ -57,45 +57,27 @@ def extract_date_from_pdf(filepath):
     return None
 
 def clean_currency(value):
-    return re.sub(r'[\u20B9,\s]', '', value).strip()
-
-def is_valid_row(tokens):
-    return len(tokens) >= 10 and any(char.isdigit() for char in tokens[2])
-
-def normalize_line_spacing(lines):
-    cleaned_lines = []
-    for line in lines:
-        if not line.strip():
-            continue
-        if re.match(r'^\s*\d{6}\s+', line):
-            cleaned_lines.append(line.strip())
-    return cleaned_lines
-
-def extract_structured_rows(lines):
-    lines = normalize_line_spacing(lines)
-    rows = []
-    for line in lines:
-        tokens = re.split(r'\s{2,}', line.strip())
-        if is_valid_row(tokens):
-            rows.append(tokens)
-    return rows
+    return re.sub(r'[\u20B9,\s]', '', str(value)).strip()
 
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
-            lines = page.extract_text().split('\n')
-            rows = extract_structured_rows(lines)
-            for tokens in rows:
-                row = {
+            table = page.extract_table()
+            if not table:
+                continue
+            for row in table[1:]:  # Skip header
+                if not row or len(row) < 3:
+                    continue
+                cleaned_row = [clean_currency(cell) for cell in row]
+                record = {
                     "Model": model,
-                    "Price List D.": date_str,
+                    "Price List D.": date_str
                 }
-                for i in range(10):
-                    col_index = i + 2
-                    if col_index < len(target_columns):
-                        row[target_columns[col_index]] = clean_currency(tokens[i]) if i < len(tokens) else ''
-                extracted_data.append(row)
+                for idx, col in enumerate(cleaned_row):
+                    if idx + 2 < len(target_columns):
+                        record[target_columns[idx + 2]] = col
+                extracted_data.append(record)
     return pd.DataFrame(extracted_data, columns=target_columns)
 
 # --- Streamlit UI ---
