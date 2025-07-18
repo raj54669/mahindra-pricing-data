@@ -8,6 +8,8 @@ import os
 import fitz  # PyMuPDF
 from github import Github
 from datetime import datetime
+from pdf2image import convert_from_path
+import pytesseract
 
 # --- ENV Secrets ---
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -43,7 +45,7 @@ def upload_to_github(filepath, github_path):
     except Exception:
         repo.create_file(github_path, f"Add {github_path}", content, branch=GITHUB_BRANCH)
 
-# --- PDF Parser ---
+# --- PDF Helper Functions ---
 def extract_date_from_pdf(filepath):
     text = ""
     with fitz.open(filepath) as doc:
@@ -61,6 +63,28 @@ def extract_date_from_pdf(filepath):
 def clean_currency(value):
     return re.sub(r'[\u20B9,\s]', '', str(value)).strip()
 
+def fallback_parse_with_ocr(filepath, model, date_str, target_columns):
+    images = convert_from_path(filepath)
+    extracted_data = []
+
+    for image in images:
+        text = pytesseract.image_to_string(image)
+        lines = text.split('\n')
+        for line in lines:
+            if any(char.isdigit() for char in line) and len(line.split()) >= 4:
+                parts = re.split(r'\s{2,}', line.strip())
+                if len(parts) >= 3:
+                    record = {
+                        "Model": model,
+                        "Price List D.": date_str
+                    }
+                    for idx, col in enumerate(parts):
+                        if idx + 2 < len(target_columns):
+                            record[target_columns[idx + 2]] = clean_currency(col)
+                    extracted_data.append(record)
+
+    return pd.DataFrame(extracted_data, columns=target_columns)
+
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
     with pdfplumber.open(filepath) as pdf:
@@ -68,7 +92,7 @@ def parse_pdf(filepath, model, date_str, target_columns):
             table = page.extract_table()
             if not table:
                 continue
-            for row in table[1:]:  # Skip header
+            for row in table[1:]:
                 if not row or len(row) < 3:
                     continue
                 cleaned_row = [clean_currency(cell) for cell in row]
@@ -80,7 +104,11 @@ def parse_pdf(filepath, model, date_str, target_columns):
                     if idx + 2 < len(target_columns):
                         record[target_columns[idx + 2]] = col
                 extracted_data.append(record)
-    return pd.DataFrame(extracted_data, columns=target_columns)
+
+    df = pd.DataFrame(extracted_data, columns=target_columns)
+    if df.empty:
+        df = fallback_parse_with_ocr(filepath, model, date_str, target_columns)
+    return df
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Mahindra Price List Uploader")
