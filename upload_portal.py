@@ -57,43 +57,46 @@ def extract_date_from_pdf(filepath):
     return None
 
 def clean_currency(value):
-    return re.sub(r'[₹,\s]', '', value).strip()
+    return re.sub(r'[\u20B9,\s]', '', value).strip()
+
+def extract_structured_rows(lines):
+    rows = []
+    for line in lines:
+        tokens = re.split(r'\s{2,}', line.strip())
+        if len(tokens) == 10 and any(char.isdigit() for char in tokens[2]):
+            rows.append(tokens)
+    return rows
 
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             lines = page.extract_text().split('\n')
-            for line in lines:
-                # Skip non-data lines
-                if not any(char.isdigit() for char in line):
-                    continue
-                # Apply basic heuristic: split line into tokens
-                tokens = re.split(r'\s{2,}', line.strip())
-                if len(tokens) >= 10:
-                    row = {
-                        "Model": model,
-                        "Price List D.": date_str,
-                        target_columns[2]: tokens[0],
-                        target_columns[3]: tokens[1],
-                        target_columns[4]: clean_currency(tokens[2]),
-                        target_columns[5]: clean_currency(tokens[3]),
-                        target_columns[6]: clean_currency(tokens[4]),
-                        target_columns[7]: clean_currency(tokens[5]),
-                        target_columns[8]: clean_currency(tokens[6]),
-                        target_columns[9]: clean_currency(tokens[7]),
-                        target_columns[10]: clean_currency(tokens[8]),
-                        target_columns[11]: clean_currency(tokens[9]),
-                    }
-                    extracted_data.append(row)
+            rows = extract_structured_rows(lines)
+            for tokens in rows:
+                row = {
+                    "Model": model,
+                    "Price List D.": date_str,
+                    target_columns[2]: tokens[0],
+                    target_columns[3]: tokens[1],
+                    target_columns[4]: clean_currency(tokens[2]),
+                    target_columns[5]: clean_currency(tokens[3]),
+                    target_columns[6]: clean_currency(tokens[4]),
+                    target_columns[7]: clean_currency(tokens[5]),
+                    target_columns[8]: clean_currency(tokens[6]),
+                    target_columns[9]: clean_currency(tokens[7]),
+                    target_columns[10]: clean_currency(tokens[8]),
+                    target_columns[11]: clean_currency(tokens[9]),
+                }
+                extracted_data.append(row)
     return pd.DataFrame(extracted_data, columns=target_columns)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Mahindra Price List Uploader")
-st.title("🚗 Mahindra Price List Uploader")
+st.title("\U0001F697 Mahindra Price List Uploader")
 
 with st.sidebar:
-    st.markdown("### 📂 Upload History")
+    st.markdown("### \U0001F4C2 Upload History")
     if "history" not in st.session_state:
         st.session_state["history"] = []
     if st.session_state["history"]:
@@ -107,10 +110,10 @@ with st.sidebar:
             st.download_button("⬇️ Download Master Excel", f, file_name="master_data.xlsx")
 
 uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
-force_reprocess = st.checkbox("🔁 Force reprocess (overwrite if exists)")
+force_reprocess = st.checkbox("\U0001F501 Force reprocess (overwrite if exists)")
 
 if uploaded_files:
-    if st.button("🚀 Process Files"):
+    if st.button("\U0001F680 Process Files"):
         master_df = download_master_excel()
         if master_df is None:
             st.stop()
@@ -118,7 +121,7 @@ if uploaded_files:
         target_columns = master_df.columns.tolist()
 
         for file in uploaded_files:
-            st.markdown(f"### 🛠️ Processing `{file.name}`")
+            st.markdown(f"### \U0001F6E0️ Processing `{file.name}`")
 
             model = re.sub(r'_JULY25.*$', '', file.name).strip().replace('_', ' ')
 
