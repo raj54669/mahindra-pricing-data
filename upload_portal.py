@@ -16,6 +16,8 @@ GITHUB_BRANCH = st.secrets["GITHUB_BRANCH"]
 PDF_UPLOAD_PATH = st.secrets["PDF_UPLOAD_PATH"]
 EXCEL_FILE_PATH = st.secrets["EXCEL_PATH"]
 
+HEADER_PHRASES = ["MODEL", "EX-SHOWROOM", "RTO", "INSURANCE", "ON ROAD", "PRICE"]
+
 # --- GitHub Helper ---
 def get_repo():
     g = Github(GITHUB_TOKEN)
@@ -66,26 +68,34 @@ def clean_currency(value):
 def clean_variant(variant):
     return re.sub(r'\s{2,}', ' ', variant.strip()) if variant else None
 
+def is_header_row(row):
+    if not row: return False
+    return any(
+        any(hdr in (cell or '').upper() for hdr in HEADER_PHRASES)
+        for cell in row
+    )
+
+def safe_row_to_dict(row, headers, model, date_str):
+    record = {"Model": model, "Price List D.": date_str}
+    for i, col in enumerate(headers):
+        val = row[i].strip() if i < len(row) and row[i] else None
+        if col == "Variant":
+            record[col] = clean_variant(val)
+        else:
+            record[col] = clean_currency(val)
+    return record
+
 def match_structure_and_clean(text_lines, model, date_str, target_columns):
     headers = target_columns[2:]
     extracted = []
     for line in text_lines:
-        if any(h in line.upper() for h in ["MODEL", "EX-SHOWROOM", "RTO", "PRICE"]):
+        if any(h in line.upper() for h in HEADER_PHRASES):
             continue
         if len(line.strip()) < 20:
             continue
         parts = re.split(r'\s{2,}', line.strip())
         if len(parts) >= 2:
-            record = {
-                "Model": model,
-                "Price List D.": date_str
-            }
-            for i, col in enumerate(headers):
-                if i < len(parts):
-                    val = clean_variant(parts[i]) if col == "Variant" else clean_currency(parts[i])
-                    record[col] = val
-                else:
-                    record[col] = None
+            record = safe_row_to_dict(parts, headers, model, date_str)
             extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
 
@@ -103,24 +113,15 @@ def parse_pdf(filepath, model, date_str, target_columns):
             table = page.extract_table()
             if not table or len(table) < 2:
                 continue
-            start_idx = 1
+            start_idx = 0
             for i, row in enumerate(table):
-                if any(h in (cell or '').upper() for cell in row for h in ["MODEL", "EX-SHOWROOM", "RTO", "PRICE"]):
+                if is_header_row(row):
                     start_idx = i + 1
             for row in table[start_idx:]:
-                if not row or len(row) < 3:
+                if not row or is_header_row(row):
                     continue
                 cleaned_row = [cell.strip() if cell else "" for cell in row]
-                record = {
-                    "Model": model,
-                    "Price List D.": date_str
-                }
-                for i, col in enumerate(headers):
-                    if i < len(cleaned_row):
-                        val = clean_variant(cleaned_row[i]) if col == "Variant" else clean_currency(cleaned_row[i])
-                        record[col] = val
-                    else:
-                        record[col] = None
+                record = safe_row_to_dict(cleaned_row, headers, model, date_str)
                 extracted_data.append(record)
     df = pd.DataFrame(extracted_data, columns=target_columns)
     if df.empty:
@@ -174,7 +175,6 @@ if uploaded_files:
                 continue
 
             master_df = download_master_excel()
-
             duplicate_check = (master_df['Model'] == model) & (master_df['Price List D.'] == pd.to_datetime(date_obj))
 
             if duplicate_check.any():
@@ -191,10 +191,10 @@ if uploaded_files:
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
-            st.success("✅ File processed and uploaded to GitHub.")
-
             with open("master_data.xlsx", "rb") as f:
-                st.download_button("⬇️ Download Updated Master Excel", data=f.read(), file_name="master_data.xlsx")
+                file_bytes = f.read()
+                st.session_state["excel_download"] = file_bytes
+                st.download_button("⬇️ Download Updated Master Excel", data=file_bytes, file_name="master_data.xlsx")
 
             if file.name not in st.session_state["history"]:
                 st.session_state["history"].append(file.name)
@@ -202,6 +202,7 @@ if uploaded_files:
             os.remove(tmp_path)
 
 # Always show latest download button
-if os.path.exists("master_data.xlsx"):
-    with open("master_data.xlsx", "rb") as f:
-        st.sidebar.download_button("⬇️ Download Master Excel", data=f.read(), file_name="master_data.xlsx")
+if "excel_download" in st.session_state:
+    st.sidebar.download_button("⬇️ Download Master Excel",
+        data=st.session_state["excel_download"],
+        file_name="master_data.xlsx")
