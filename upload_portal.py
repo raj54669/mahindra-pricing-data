@@ -8,7 +8,7 @@ import os
 import fitz  # PyMuPDF
 from github import Github
 from datetime import datetime
-from pdf2image import convert_from_path
+from PIL import Image
 import pytesseract
 
 # --- ENV Secrets ---
@@ -64,9 +64,14 @@ def clean_currency(value):
     return re.sub(r'[\u20B9,\s]', '', str(value)).strip()
 
 def fallback_parse_with_ocr(filepath, model, date_str, target_columns):
-    images = convert_from_path(filepath)
-    extracted_data = []
+    images = []
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            pix = page.get_pixmap(dpi=300)
+            image = Image.open(io.BytesIO(pix.tobytes("png")))
+            images.append(image)
 
+    extracted_data = []
     for image in images:
         text = pytesseract.image_to_string(image)
         lines = text.split('\n')
