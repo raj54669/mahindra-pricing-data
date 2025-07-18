@@ -131,6 +131,11 @@ with st.sidebar:
     else:
         st.markdown("No entries yet.")
 
+    if not os.path.exists("master_data.xlsx"):
+        df_check = download_master_excel()
+        if df_check is not None:
+            df_check.to_excel("master_data.xlsx", index=False)
+
     if os.path.exists("master_data.xlsx"):
         with open("master_data.xlsx", "rb") as f:
             st.download_button("⬇️ Download Master Excel", f, file_name="master_data.xlsx")
