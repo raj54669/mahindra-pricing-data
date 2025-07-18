@@ -12,13 +12,42 @@ from scripts.pdf_parser import (
     parse_table
 )
 
-st.set_page_config(page_title="Mahindra PDF Uploader", layout="centered")
+st.set_page_config(page_title="Mahindra PDF Uploader", layout="wide")
 st.title("🚘 Mahindra Price List Uploader")
 
-# ---- GitHub repo info from secrets
+# ---- GitHub setup
 repo = get_github_repo()
 excel_path = st.secrets["EXCEL_PATH"]
 pdf_dir = st.secrets["PDF_UPLOAD_PATH"]
+
+# ---- Load master Excel (try first)
+try:
+    master_io, master_sha = download_file_from_repo(repo, excel_path)
+    df_master = pd.read_excel(master_io)
+except Exception:
+    df_master = pd.DataFrame(columns=["Model", "Price List D."])  # Empty base
+
+# ---- Sidebar: Upload history
+with st.sidebar:
+    st.header("📂 Upload History")
+    if df_master.empty:
+        st.info("No entries yet.")
+    else:
+        recent = df_master[["Model", "Price List D."]].drop_duplicates().tail(10)
+        st.write("### 🔄 Recent Uploads")
+        st.dataframe(recent, use_container_width=True)
+
+        st.markdown("### 📥 Download Master Excel")
+        download_buf = BytesIO()
+        df_master.to_excel(download_buf, index=False)
+        st.download_button(
+            label="⬇️ Download master_data.xlsx",
+            data=download_buf,
+            file_name="master_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        st.markdown(f"📈 **Total Entries:** {len(df_master)}")
 
 # ---- Upload UI
 uploaded_files = st.file_uploader(
@@ -28,14 +57,6 @@ uploaded_files = st.file_uploader(
 )
 
 if st.button("🚀 Process Files") and uploaded_files:
-    # Load master Excel (or create new)
-    try:
-        master_io, master_sha = download_file_from_repo(repo, excel_path)
-        df_master = pd.read_excel(master_io)
-    except Exception:
-        st.warning("Master Excel not found in GitHub. Creating a new one.")
-        df_master = pd.DataFrame(columns=["Model", "Price List D."])  # Will expand dynamically
-
     for uploaded in uploaded_files:
         st.markdown(f"---\n### 🛠 Processing `{uploaded.name}`")
 
@@ -88,4 +109,3 @@ if st.button("🚀 Process Files") and uploaded_files:
             continue
 
         st.success(f"✅ Successfully processed `{uploaded.name}`")
-
