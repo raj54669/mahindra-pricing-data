@@ -61,22 +61,26 @@ def clean_currency(value):
     return re.sub(r'[^0-9]', '', str(value))
 
 def parse_pdf(filepath, model, date_str, target_columns):
-    tables = camelot.read_pdf(filepath, pages='all', flavor='lattice')
     all_data = []
-    for table in tables:
-        df = table.df
-        df.columns = df.iloc[0]
-        df = df[1:]  # Drop header row
 
-        # Only keep rows with all required columns present
-        if set(target_columns[2:]).issubset(df.columns):
-            df = df[target_columns[2:]]
-            df.insert(0, 'Price List D.', date_str)
-            df.insert(0, 'Model', model)
-            # Clean ₹, commas etc
-            for col in df.columns:
-                df[col] = df[col].apply(clean_currency)
-            all_data.append(df)
+    for flavor in ['lattice', 'stream']:
+        tables = camelot.read_pdf(filepath, pages='all', flavor=flavor)
+        for table in tables:
+            df = table.df
+            df.columns = df.iloc[0]
+            df = df[1:]  # Drop header row
+
+            if set(target_columns[2:]).issubset(df.columns):
+                df = df[target_columns[2:]]
+                df.insert(0, 'Price List D.', date_str)
+                df.insert(0, 'Model', model)
+                for col in df.columns:
+                    df[col] = df[col].apply(clean_currency)
+                all_data.append(df)
+
+        if all_data:
+            break
+
     if all_data:
         return pd.concat(all_data, ignore_index=True)
     else:
