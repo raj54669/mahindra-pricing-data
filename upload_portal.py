@@ -1,120 +1,147 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
-from scripts.github_utils import (
-    get_github_repo,
-    download_file_from_repo,
-    upload_or_update_file
-)
-from scripts.pdf_parser import (
-    extract_model,
-    extract_effective_date,
-    parse_table
-)
+import camelot
+import io
+import re
+import tempfile
+import os
+from github import Github
+from datetime import datetime
 
-st.set_page_config(page_title="Mahindra Price List Uploader", layout="wide")
-st.title("🚘 Mahindra Price List Uploader")
+# --- ENV Secrets ---
+GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+GITHUB_REPO = st.secrets["GITHUB_REPO"]
+GITHUB_BRANCH = st.secrets["GITHUB_BRANCH"]
+PDF_UPLOAD_PATH = st.secrets["PDF_UPLOAD_PATH"]
+EXCEL_FILE_PATH = "master_data.xlsx"
 
-# ---- GitHub setup
-repo = get_github_repo()
-excel_path = st.secrets["EXCEL_PATH"]
-pdf_dir = st.secrets["PDF_UPLOAD_PATH"]
+# --- GitHub Helper ---
+def get_repo():
+    g = Github(GITHUB_TOKEN)
+    return g.get_repo(GITHUB_REPO)
 
-# ---- Load master Excel (or fallback to local sample)
-try:
-    master_io, master_sha = download_file_from_repo(repo, excel_path)
-    df_master = pd.read_excel(master_io)
-except Exception:
-    st.warning("⚠️ Master Excel not found in GitHub. Using uploaded sample as base.")
-    df_master = pd.read_excel("master_data.xlsx")
+def download_master_excel():
+    repo = get_repo()
+    try:
+        contents = repo.get_contents(EXCEL_FILE_PATH, ref=GITHUB_BRANCH)
+        df = pd.read_excel(io.BytesIO(contents.decoded_content))
+        return df
+    except Exception:
+        st.warning("Master Excel not found in GitHub. Creating a new one.")
+        return None
 
-# ---- Sidebar: Upload history
-with st.sidebar:
-    st.header("📂 Upload History")
-    if df_master.empty:
-        st.info("No entries yet.")
+def upload_to_github(filepath, github_path):
+    repo = get_repo()
+    with open(filepath, "rb") as file:
+        content = file.read()
+    try:
+        contents = repo.get_contents(github_path, ref=GITHUB_BRANCH)
+        repo.update_file(contents.path, f"Update {github_path}", content, contents.sha, branch=GITHUB_BRANCH)
+    except Exception:
+        repo.create_file(github_path, f"Add {github_path}", content, branch=GITHUB_BRANCH)
+
+# --- PDF Parser ---
+def extract_date_from_pdf(filepath):
+    with open(filepath, 'rb') as f:
+        text = f.read().decode(errors='ignore')
+    match = re.search(r'Price list.*?(\d{2}/\d{2}/\d{4})', text)
+    if match:
+        return datetime.strptime(match.group(1), "%d/%m/%Y").date()
+    return None
+
+def clean_currency(value):
+    if pd.isna(value): return value
+    return re.sub(r'[^0-9]', '', str(value))
+
+def parse_pdf(filepath, model, date_str, target_columns):
+    tables = camelot.read_pdf(filepath, pages='all', flavor='lattice')
+    all_data = []
+    for table in tables:
+        df = table.df
+        df.columns = df.iloc[0]
+        df = df[1:]  # Drop header row
+
+        # Only keep rows with all required columns present
+        if set(target_columns[2:]).issubset(df.columns):
+            df = df[target_columns[2:]]
+            df.insert(0, 'Price List D.', date_str)
+            df.insert(0, 'Model', model)
+            # Clean ₹, commas etc
+            for col in df.columns:
+                df[col] = df[col].apply(clean_currency)
+            all_data.append(df)
+    if all_data:
+        return pd.concat(all_data, ignore_index=True)
     else:
-        recent = df_master[["Model", "Price List D."]].drop_duplicates().tail(10)
-        st.write("### 🔄 Recent Uploads")
-        st.dataframe(recent, use_container_width=True)
+        return pd.DataFrame(columns=target_columns)
 
-        st.markdown("### 📥 Download Master Excel")
-        buf = BytesIO()
-        df_master.to_excel(buf, index=False)
-        st.download_button("⬇️ Download master_data.xlsx", buf.getvalue(), "master_data.xlsx")
+# --- Streamlit UI ---
+st.set_page_config(page_title="Mahindra Price List Uploader")
+st.title("🚗 Mahindra Price List Uploader")
 
-        st.markdown(f"📊 **Total Records:** `{len(df_master)}`")
+with st.sidebar:
+    st.markdown("### 📂 Upload History")
+    if "history" not in st.session_state:
+        st.session_state["history"] = []
+    if st.session_state["history"]:
+        for entry in st.session_state["history"]:
+            st.markdown(f"- {entry}")
+    else:
+        st.markdown("No entries yet.")
 
-# ---- Upload UI
-uploaded_files = st.file_uploader(
-    "📄 Upload Mahindra Price List PDFs",
-    type=["pdf"],
-    accept_multiple_files=True
-)
+uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
+force_reprocess = st.checkbox("🔁 Force reprocess (overwrite if exists)")
 
-# ---- Main processing
-if st.button("🚀 Process Files") and uploaded_files:
-    for uploaded in uploaded_files:
-        st.markdown(f"---\n### 🛠 Processing `{uploaded.name}`")
+if uploaded_files:
+    if st.button("🚀 Process Files"):
+        master_df = download_master_excel()
+        if master_df is None:
+            st.stop()
 
-        model = extract_model(uploaded.name)
-        uploaded.seek(0)
-        effective_date = extract_effective_date(uploaded)
-        uploaded.seek(0)
-        df_new = parse_table(uploaded)
-        uploaded.seek(0)
+        target_columns = master_df.columns.tolist()
 
-        if not effective_date or df_new is None or df_new.empty:
-            st.error("❌ Failed to extract data from PDF.")
-            continue
+        for file in uploaded_files:
+            st.markdown(f"### 🛠️ Processing `{file.name}`")
 
-        # Insert metadata
-        df_new.insert(0, "Price List D.", effective_date)
-        df_new.insert(0, "Model", model)
+            model = re.sub(r'_JULY25.*$', '', file.name).strip().replace('_', ' ')
 
-        # Normalize columns
-        df_new.columns = df_new.columns.str.strip()
-        df_master.columns = df_master.columns.str.strip()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(file.read())
+                tmp_path = tmp.name
 
-        # 🛠 Force headers if column count matches master
-        if df_new.shape[1] == len(df_master.columns):
-            df_new.columns = df_master.columns
-        else:
-            # Check for missing headers
-            missing = [col for col in df_master.columns if col not in df_new.columns]
-            st.error(f"❌ Missing columns in parsed data: {missing}")
-            continue
+            date_obj = extract_date_from_pdf(tmp_path)
+            if not date_obj:
+                st.error("❌ Could not extract date from PDF.")
+                continue
 
-        # Duplicate check
-        is_duplicate = not df_master[
-            (df_master["Model"] == model) &
-            (df_master["Price List D."] == effective_date)
-        ].empty
-        if is_duplicate:
-            st.warning("⚠️ Duplicate entry. Skipping.")
-            continue
+            df_new = parse_pdf(tmp_path, model, date_obj, target_columns)
 
-        # Append and push Excel
-        try:
-            df_master = pd.concat([df_master, df_new], ignore_index=True)
-            out_excel = BytesIO()
-            df_master.to_excel(out_excel, index=False)
-            upload_or_update_file(
-                repo, excel_path, out_excel,
-                f"Add {model} price list dated {effective_date}"
-            )
-        except Exception as e:
-            st.error(f"❌ Failed to update Excel: {e}")
-            continue
+            if df_new.empty:
+                st.error("❌ No matching tables found in PDF.")
+                continue
 
-        # Upload PDF
-        try:
-            upload_or_update_file(
-                repo, f"{pdf_dir}/{uploaded.name}", uploaded,
-                f"Upload PDF: {uploaded.name}"
-            )
-        except Exception as e:
-            st.error(f"❌ Failed to upload PDF: {e}")
-            continue
+            # Reload master in case it was changed
+            master_df = download_master_excel()
 
-        st.success(f"✅ Successfully processed `{uploaded.name}`")
+            duplicate_check = (master_df['Model'] == model) & (master_df['Price List D.'] == pd.to_datetime(date_obj))
+
+            if duplicate_check.any():
+                if force_reprocess:
+                    master_df = master_df[~duplicate_check]  # Remove duplicates
+                    st.warning("⚠️ Duplicate entry found. Overwriting as requested.")
+                else:
+                    st.warning("⚠️ Duplicate entry. Skipping.")
+                    continue
+
+            # Append new clean data
+            combined_df = pd.concat([master_df, df_new], ignore_index=True)
+            combined_df.to_excel("master_data.xlsx", index=False)
+
+            # Upload Excel and PDF to GitHub
+            upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
+            upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}{file.name}")
+
+            st.success("✅ File processed and uploaded to GitHub.")
+            st.session_state["history"].append(file.name)
+
+            os.remove(tmp_path)
