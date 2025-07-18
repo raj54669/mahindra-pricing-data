@@ -94,7 +94,7 @@ def safe_row_to_dict(row, model, date_str):
     row = row[:len(PDF_COLUMN_ORDER)] + [None] * max(0, len(PDF_COLUMN_ORDER) - len(row))
 
     for i, col in enumerate(PDF_COLUMN_ORDER):
-        val = row[i].strip() if isinstance(row[i], str) else row[i]
+        val = row[i].strip() if i < len(row) and isinstance(row[i], str) else row[i]
         if col == "Variant":
             record[col] = clean_variant(val)
         else:
