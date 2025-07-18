@@ -105,7 +105,12 @@ def parse_pdf(filepath, model, date_str, target_columns):
             table = page.extract_table()
             if not table or len(table) < 2:
                 continue
-            for row in table[1:]:
+            # Skip header rows explicitly
+            start_idx = 1
+            for i, row in enumerate(table):
+                if any(h in (cell or '').upper() for cell in row for h in ["MODEL", "EX-SHOWROOM", "RTO", "PRICE"]):
+                    start_idx = i + 1
+            for row in table[start_idx:]:
                 if not row or len(row) < 3:
                     continue
                 cleaned_row = [cell.strip() if cell else "" for cell in row]
