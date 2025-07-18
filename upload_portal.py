@@ -1,54 +1,59 @@
 import streamlit as st
-import os
-from convert_pdfs_to_excel import convert_all_pdfs
+import pandas as pd
+from io import BytesIO
+from scripts.github_utils import get_github_repo, download_file_from_repo, upload_or_update_file
+from scripts.pdf_parser import extract_model, extract_effective_date, parse_table
 
-# Page setup
-st.set_page_config(page_title="PDF to Excel Converter", layout="centered")
+st.title("📤 Mahindra Price List Uploader")
 
-# Title and description
-st.title("📄 Mahindra Price List Converter")
-st.write(
-    """
-    Upload one or more Mahindra price list PDFs below and convert them into a single Excel file.
-    """
-)
+uploaded_files = st.file_uploader("Upload Mahindra PDF files", type=["pdf"], accept_multiple_files=True)
 
-# Upload PDF files
-uploaded_files = st.file_uploader(
-    "📤 Upload PDF files",
-    type="pdf",
-    accept_multiple_files=True
-)
+if st.button("Process Files") and uploaded_files:
+    repo = get_github_repo()
+    excel_path = st.secrets["github"]["excel_path"]
+    pdf_dir = st.secrets["github"]["pdf_dir"]
 
-# Directory to save PDFs
-pdf_dir = "price-pdfs"
+    # Load master Excel
+    try:
+        master_data_io, master_sha = download_file_from_repo(repo, excel_path)
+        df_master = pd.read_excel(master_data_io)
+    except:
+        df_master = pd.DataFrame()
 
-# Process uploaded files
-if uploaded_files:
-    os.makedirs(pdf_dir, exist_ok=True)
+    for uploaded in uploaded_files:
+        st.markdown(f"#### 🔍 Processing `{uploaded.name}`")
 
-    # Save each file
-    for file in uploaded_files:
-        file_path = os.path.join(pdf_dir, file.name)
-        with open(file_path, "wb") as f:
-            f.write(file.getbuffer())
+        model = extract_model(uploaded.name)
+        uploaded.seek(0)
+        date = extract_effective_date(uploaded)
+        uploaded.seek(0)
+        df_new = parse_table(uploaded)
+        uploaded.seek(0)
 
-    st.success(f"✅ {len(uploaded_files)} file(s) uploaded successfully.")
+        if df_new is None or not date:
+            st.error("❌ Could not extract data or table.")
+            continue
 
-    # Button to trigger conversion
-    if st.button("🚀 Convert to Excel"):
-        with st.spinner("Converting PDFs to Excel…"):
-            try:
-                excel_path = convert_all_pdfs(pdf_dir)
-                if excel_path and os.path.exists(excel_path):
-                    with open(excel_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download Excel File",
-                            data=f,
-                            file_name=os.path.basename(excel_path),
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                else:
-                    st.error("❌ Conversion failed. No valid pricing data found in the PDFs.")
-            except Exception as e:
-                st.error(f"❌ An error occurred during conversion:\n\n{e}")
+        # Add metadata columns
+        df_new.insert(0, "Price List D.", date)
+        df_new.insert(0, "Model", model)
+
+        # Duplicate check
+        if not df_master[
+            (df_master["Model"] == model) &
+            (df_master["Price List D."] == date)
+        ].empty:
+            st.warning("⚠️ This data already exists. Skipping.")
+            continue
+
+        df_master = pd.concat([df_master, df_new], ignore_index=True)
+
+        # Save master Excel
+        output = BytesIO()
+        df_master.to_excel(output, index=False)
+        upload_or_update_file(repo, excel_path, output, f"Update master with {model} {date}")
+
+        # Save PDF
+        upload_or_update_file(repo, f"{pdf_dir}/{uploaded.name}", uploaded, f"Add raw PDF: {uploaded.name}")
+
+        st.success(f"✅ Uploaded `{uploaded.name}` successfully.")
