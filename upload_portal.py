@@ -26,6 +26,8 @@ def download_master_excel():
     try:
         contents = repo.get_contents(EXCEL_FILE_PATH, ref=GITHUB_BRANCH)
         df = pd.read_excel(io.BytesIO(contents.decoded_content))
+        with open("master_data.xlsx", "wb") as f:
+            f.write(contents.decoded_content)
         return df
     except Exception:
         st.warning("Master Excel not found in GitHub. Creating a new one.")
@@ -84,10 +86,11 @@ def parse_pdf(filepath, model, date_str, target_columns):
 st.set_page_config(page_title="Mahindra Price List Uploader")
 st.title("\U0001F697 Mahindra Price List Uploader")
 
+if "history" not in st.session_state:
+    st.session_state["history"] = []
+
 with st.sidebar:
     st.markdown("### \U0001F4C2 Upload History")
-    if "history" not in st.session_state:
-        st.session_state["history"] = []
     if st.session_state["history"]:
         for entry in st.session_state["history"]:
             st.markdown(f"- {entry}")
@@ -99,7 +102,7 @@ with st.sidebar:
             st.download_button("⬇️ Download Master Excel", f, file_name="master_data.xlsx")
 
 uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
-force_reprocess = st.checkbox("\U0001F501 Force reprocess (overwrite if exists)")
+force_reprocess = st.checkbox("\U0001F501 Force reprocess (overwrite if exists)", value=True)
 
 if uploaded_files:
     if st.button("\U0001F680 Process Files"):
@@ -148,6 +151,8 @@ if uploaded_files:
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
             st.success("✅ File processed and uploaded to GitHub.")
-            st.session_state["history"].append(file.name)
+
+            if file.name not in st.session_state["history"]:
+                st.session_state["history"].append(file.name)
 
             os.remove(tmp_path)
