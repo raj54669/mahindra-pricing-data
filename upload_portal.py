@@ -12,7 +12,7 @@ from scripts.pdf_parser import (
     parse_table
 )
 
-st.set_page_config(page_title="Mahindra PDF Uploader", layout="wide")
+st.set_page_config(page_title="Mahindra Price List Uploader", layout="wide")
 st.title("🚘 Mahindra Price List Uploader")
 
 # ---- GitHub setup
@@ -20,13 +20,13 @@ repo = get_github_repo()
 excel_path = st.secrets["EXCEL_PATH"]
 pdf_dir = st.secrets["PDF_UPLOAD_PATH"]
 
-# ---- Load master Excel
+# ---- Load master Excel or use sample structure if missing
 try:
     master_io, master_sha = download_file_from_repo(repo, excel_path)
     df_master = pd.read_excel(master_io)
 except Exception:
-    st.warning("⚠️ Master Excel not found in GitHub. Creating a new one.")
-    df_master = pd.DataFrame(columns=["Model", "Price List D."])  # Fallback columns
+    st.warning("⚠️ Master Excel not found in GitHub. Using sample Excel as base.")
+    df_master = pd.read_excel("master_data.xlsx.xlsx")  # Your uploaded full-structure file
 
 # ---- Sidebar: Upload history + Excel download
 with st.sidebar:
@@ -50,7 +50,7 @@ with st.sidebar:
 
         st.markdown(f"📊 **Total Records:** `{len(df_master)}`")
 
-# ---- File upload UI
+# ---- Upload UI
 uploaded_files = st.file_uploader(
     "📄 Upload Mahindra Price List PDFs",
     type=["pdf"],
@@ -104,12 +104,15 @@ if st.button("🚀 Process Files") and uploaded_files:
         df_new.insert(0, "Price List D.", effective_date)
         df_new.insert(0, "Model", model)
 
-        # Step 5: Fix column issues
-        df_new.columns = make_columns_unique(df_new.columns)
-        df_master.columns = make_columns_unique(df_master.columns)
-        common_cols = [col for col in df_master.columns if col in df_new.columns]
-        df_new = df_new[common_cols]
-        df_master = df_master[common_cols]
+        # Step 5: Align structure with master
+        df_new.columns = df_new.columns.astype(str)
+        df_master.columns = df_master.columns.astype(str)
+
+        for col in df_master.columns:
+            if col not in df_new.columns:
+                df_new[col] = ""
+
+        df_new = df_new[df_master.columns]
 
         # Step 6: Append and save
         df_master = pd.concat([df_master, df_new], ignore_index=True)
