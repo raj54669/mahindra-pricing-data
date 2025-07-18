@@ -142,15 +142,6 @@ with st.sidebar:
     else:
         st.markdown("No entries yet.")
 
-    if not os.path.exists("master_data.xlsx"):
-        df_check = download_master_excel()
-        if df_check is not None:
-            df_check.to_excel("master_data.xlsx", index=False)
-
-    if os.path.exists("master_data.xlsx"):
-        with open("master_data.xlsx", "rb") as f:
-            st.download_button("⬇️ Download Updated Master Excel", data=f.read(), file_name="master_data.xlsx")
-
 uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
 force_reprocess = st.checkbox("\U0001F501 Force reprocess (overwrite if exists)", value=True)
 
@@ -200,12 +191,17 @@ if uploaded_files:
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
+            st.success("✅ File processed and uploaded to GitHub.")
+
             with open("master_data.xlsx", "rb") as f:
                 st.download_button("⬇️ Download Updated Master Excel", data=f.read(), file_name="master_data.xlsx")
-
-            st.success("✅ File processed and uploaded to GitHub.")
 
             if file.name not in st.session_state["history"]:
                 st.session_state["history"].append(file.name)
 
             os.remove(tmp_path)
+
+# Always show latest download button
+if os.path.exists("master_data.xlsx"):
+    with open("master_data.xlsx", "rb") as f:
+        st.sidebar.download_button("⬇️ Download Master Excel", data=f.read(), file_name="master_data.xlsx")
