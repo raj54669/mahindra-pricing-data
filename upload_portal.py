@@ -59,11 +59,24 @@ def extract_date_from_pdf(filepath):
 def clean_currency(value):
     return re.sub(r'[\u20B9,\s]', '', value).strip()
 
+def is_valid_row(tokens):
+    return len(tokens) >= 10 and any(char.isdigit() for char in tokens[2])
+
+def normalize_line_spacing(lines):
+    cleaned_lines = []
+    for line in lines:
+        if not line.strip():
+            continue
+        if re.match(r'^\s*\d{6}\s+', line):
+            cleaned_lines.append(line.strip())
+    return cleaned_lines
+
 def extract_structured_rows(lines):
+    lines = normalize_line_spacing(lines)
     rows = []
     for line in lines:
         tokens = re.split(r'\s{2,}', line.strip())
-        if len(tokens) == 10 and any(char.isdigit() for char in tokens[2]):
+        if is_valid_row(tokens):
             rows.append(tokens)
     return rows
 
@@ -77,17 +90,11 @@ def parse_pdf(filepath, model, date_str, target_columns):
                 row = {
                     "Model": model,
                     "Price List D.": date_str,
-                    target_columns[2]: tokens[0],
-                    target_columns[3]: tokens[1],
-                    target_columns[4]: clean_currency(tokens[2]),
-                    target_columns[5]: clean_currency(tokens[3]),
-                    target_columns[6]: clean_currency(tokens[4]),
-                    target_columns[7]: clean_currency(tokens[5]),
-                    target_columns[8]: clean_currency(tokens[6]),
-                    target_columns[9]: clean_currency(tokens[7]),
-                    target_columns[10]: clean_currency(tokens[8]),
-                    target_columns[11]: clean_currency(tokens[9]),
                 }
+                for i in range(10):
+                    col_index = i + 2
+                    if col_index < len(target_columns):
+                        row[target_columns[col_index]] = clean_currency(tokens[i]) if i < len(tokens) else ''
                 extracted_data.append(row)
     return pd.DataFrame(extracted_data, columns=target_columns)
 
