@@ -114,6 +114,10 @@ with st.sidebar:
     else:
         st.markdown("No entries yet.")
 
+    if os.path.exists("master_data.xlsx"):
+        with open("master_data.xlsx", "rb") as f:
+            st.download_button("⬇️ Download Master Excel", f, file_name="master_data.xlsx")
+
 uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
 force_reprocess = st.checkbox("🔁 Force reprocess (overwrite if exists)")
 
@@ -145,24 +149,21 @@ if uploaded_files:
                 st.error("❌ No matching tables found in PDF.")
                 continue
 
-            # Reload master in case it was changed
             master_df = download_master_excel()
 
             duplicate_check = (master_df['Model'] == model) & (master_df['Price List D.'] == pd.to_datetime(date_obj))
 
             if duplicate_check.any():
                 if force_reprocess:
-                    master_df = master_df[~duplicate_check]  # Remove duplicates
+                    master_df = master_df[~duplicate_check]
                     st.warning("⚠️ Duplicate entry found. Overwriting as requested.")
                 else:
                     st.warning("⚠️ Duplicate entry. Skipping.")
                     continue
 
-            # Append new clean data
             combined_df = pd.concat([master_df, df_new], ignore_index=True)
             combined_df.to_excel("master_data.xlsx", index=False)
 
-            # Upload Excel and PDF to GitHub
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
