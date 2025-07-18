@@ -77,7 +77,7 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
                 for i, col in enumerate(headers):
                     if i < len(parts):
                         value = clean_currency(parts[i]) if col != "Variant" else parts[i].strip()
-                        record[col] = value
+                        record[col] = value if value else None
                 extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
 
@@ -105,8 +105,10 @@ def parse_pdf(filepath, model, date_str, target_columns):
                 for idx, cell in enumerate(cleaned_row):
                     if idx + 2 < len(target_columns):
                         col = target_columns[idx + 2]
-                        value = clean_currency(cell) if col != "Variant" else cell.strip()
-                        record[col] = value
+                        if col == "Variant":
+                            record[col] = re.sub(r'\s+', ' ', cell.strip()) if cell.strip() else None
+                        else:
+                            record[col] = clean_currency(cell) if cell.strip() else None
                 extracted_data.append(record)
 
     df = pd.DataFrame(extracted_data, columns=target_columns)
