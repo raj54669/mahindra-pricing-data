@@ -13,7 +13,7 @@ GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
 GITHUB_REPO = st.secrets["GITHUB_REPO"]
 GITHUB_BRANCH = st.secrets["GITHUB_BRANCH"]
 PDF_UPLOAD_PATH = st.secrets["PDF_UPLOAD_PATH"]
-EXCEL_FILE_PATH = "master_data.xlsx"
+EXCEL_FILE_PATH = st.secrets["EXCEL_PATH"]
 
 # --- GitHub Helper ---
 def get_repo():
@@ -61,15 +61,17 @@ def parse_pdf(filepath, model, date_str, target_columns):
         df.columns = df.iloc[0]
         df = df[1:]  # Drop header row
 
-        # Only keep rows with all required columns present
+        # Only process tables with all required columns
         if set(target_columns[2:]).issubset(df.columns):
             df = df[target_columns[2:]]
             df.insert(0, 'Price List D.', date_str)
             df.insert(0, 'Model', model)
-            # Clean ₹, commas etc
+
             for col in df.columns:
                 df[col] = df[col].apply(clean_currency)
+
             all_data.append(df)
+
     if all_data:
         return pd.concat(all_data, ignore_index=True)
     else:
@@ -120,26 +122,22 @@ if uploaded_files:
                 st.error("❌ No matching tables found in PDF.")
                 continue
 
-            # Reload master in case it was changed
             master_df = download_master_excel()
-
             duplicate_check = (master_df['Model'] == model) & (master_df['Price List D.'] == pd.to_datetime(date_obj))
 
             if duplicate_check.any():
                 if force_reprocess:
-                    master_df = master_df[~duplicate_check]  # Remove duplicates
+                    master_df = master_df[~duplicate_check]
                     st.warning("⚠️ Duplicate entry found. Overwriting as requested.")
                 else:
                     st.warning("⚠️ Duplicate entry. Skipping.")
                     continue
 
-            # Append new clean data
             combined_df = pd.concat([master_df, df_new], ignore_index=True)
             combined_df.to_excel("master_data.xlsx", index=False)
 
-            # Upload Excel and PDF to GitHub
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
-            upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}{file.name}")
+            upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
 
             st.success("✅ File processed and uploaded to GitHub.")
             st.session_state["history"].append(file.name)
