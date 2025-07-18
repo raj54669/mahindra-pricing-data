@@ -59,7 +59,10 @@ def extract_date_from_pdf(filepath):
     return None
 
 def clean_currency(value):
-    return re.sub(r'[\u20B9,\s]', '', str(value)).strip()
+    if not value:
+        return None
+    val = re.sub(r'[\u20B9,\s]', '', str(value)).strip()
+    return val if val else None
 
 def match_structure_and_clean(text_lines, model, date_str, target_columns):
     extracted = []
@@ -76,8 +79,11 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
                 }
                 for i, col in enumerate(headers):
                     if i < len(parts):
-                        value = clean_currency(parts[i]) if col != "Variant" else re.sub(r'\s+', ' ', parts[i].strip())
-                        record[col] = value if value else None
+                        if col == "Variant":
+                            variant = parts[i].strip()
+                            record[col] = re.sub(r'\s+', ' ', variant) if variant else None
+                        else:
+                            record[col] = clean_currency(parts[i])
                 extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
 
@@ -92,7 +98,7 @@ def parse_pdf(filepath, model, date_str, target_columns):
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
-            if not table:
+            if not table or len(table) < 2:
                 continue
             for row in table[1:]:  # Skip header row
                 if not row or len(row) < 3:
