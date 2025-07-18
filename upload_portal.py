@@ -18,6 +18,15 @@ EXCEL_FILE_PATH = st.secrets["EXCEL_PATH"]
 
 HEADER_PHRASES = ["MODEL", "EX-SHOWROOM", "RTO", "INSURANCE", "ON ROAD", "PRICE"]
 
+PDF_COLUMN_ORDER = [
+    "Variant", "Ex-Showroom Price", "TCS 1%", "Accessories Kit", "SMC",
+    "Extended Warranty", "Maxi Care", "RSA (1 Year)", "Fastag",
+    "RTO (W/O HYPO) - Individual", "On Road Price (W/O HYPO) - Individual",
+    "RTO (With HYPO) - Individual", "On Road Price (With HYPO) - Individual",
+    "RTO (W/O HYPO) - Corporate", "On Road Price (W/O HYPO) - Corporate",
+    "RTO (With HYPO) - Corporate", "On Road Price (With HYPO) - Corporate"
+]
+
 # --- GitHub Helper ---
 def get_repo():
     g = Github(GITHUB_TOKEN)
@@ -75,9 +84,25 @@ def is_header_row(row):
         for cell in row
     )
 
-def safe_row_to_dict(row, headers, model, date_str):
+def safe_row_to_dict(row, model, date_str):
     record = {"Model": model, "Price List D.": date_str}
-    for i, col in enumerate(headers):
+
+    # Fix 1: Detect if Ex-Showroom is missing and shift
+    if len(row) == len(PDF_COLUMN_ORDER) - 1:
+        row = row[:1] + [None] + row[1:]
+
+    # Fix 2: Detect if Ex-Showroom + TCS are merged in one field
+    if len(row) >= 3 and re.fullmatch(r'\d{6,}', row[2]):
+        if not re.fullmatch(r'\d{6,}', row[1]):
+            ex_showroom = row[2][:6]
+            tcs = row[2][6:]
+            row = row[:1] + [ex_showroom, tcs] + row[3:]
+
+    # Fix 3: Pad missing tail columns
+    if len(row) < len(PDF_COLUMN_ORDER):
+        row += [None] * (len(PDF_COLUMN_ORDER) - len(row))
+
+    for i, col in enumerate(PDF_COLUMN_ORDER):
         val = row[i].strip() if i < len(row) and row[i] else None
         if col == "Variant":
             record[col] = clean_variant(val)
@@ -85,48 +110,21 @@ def safe_row_to_dict(row, headers, model, date_str):
             record[col] = clean_currency(val)
     return record
 
-def match_structure_and_clean(text_lines, model, date_str, target_columns):
-    headers = target_columns[2:]
-    extracted = []
-    for line in text_lines:
-        if any(h in line.upper() for h in HEADER_PHRASES):
-            continue
-        if len(line.strip()) < 20:
-            continue
-        parts = re.split(r'\s{2,}', line.strip())
-        if len(parts) >= 2:
-            record = safe_row_to_dict(parts, headers, model, date_str)
-            extracted.append(record)
-    return pd.DataFrame(extracted, columns=target_columns)
-
-def fallback_parse_with_text(filepath, model, date_str, target_columns):
-    with fitz.open(filepath) as doc:
-        text = "\n".join([page.get_text() for page in doc])
-        lines = text.split("\n")
-    return match_structure_and_clean(lines, model, date_str, target_columns)
-
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
-    headers = target_columns[2:]
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
             if not table or len(table) < 2:
                 continue
-            start_idx = 0
-            for i, row in enumerate(table):
-                if is_header_row(row):
-                    start_idx = i + 1
-            for row in table[start_idx:]:
+            for row in table:
                 if not row or is_header_row(row):
                     continue
                 cleaned_row = [cell.strip() if cell else "" for cell in row]
-                record = safe_row_to_dict(cleaned_row, headers, model, date_str)
-                extracted_data.append(record)
-    df = pd.DataFrame(extracted_data, columns=target_columns)
-    if df.empty:
-        df = fallback_parse_with_text(filepath, model, date_str, target_columns)
-    return df
+                if len(cleaned_row) >= len(PDF_COLUMN_ORDER) - 1:
+                    record = safe_row_to_dict(cleaned_row, model, date_str)
+                    extracted_data.append(record)
+    return pd.DataFrame(extracted_data, columns=["Model", "Price List D."] + PDF_COLUMN_ORDER)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Mahindra Price List Uploader")
@@ -152,8 +150,6 @@ if uploaded_files:
         if master_df is None:
             st.stop()
 
-        target_columns = master_df.columns.tolist()
-
         for file in uploaded_files:
             st.markdown(f"### \U0001F6E0️ Processing `{file.name}`")
 
@@ -168,7 +164,7 @@ if uploaded_files:
                 st.error("❌ Could not extract date from PDF.")
                 continue
 
-            df_new = parse_pdf(tmp_path, model, date_obj, target_columns)
+            df_new = parse_pdf(tmp_path, model, date_obj, ["Model", "Price List D."] + PDF_COLUMN_ORDER)
 
             if df_new.empty:
                 st.error("❌ No structured rows extracted from PDF.")
