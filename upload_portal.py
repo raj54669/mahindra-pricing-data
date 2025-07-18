@@ -87,27 +87,19 @@ def is_header_row(row):
 def safe_row_to_dict(row, model, date_str):
     record = {"Model": model, "Price List D.": date_str}
 
-    # Fix 1: Detect if Ex-Showroom is missing and shift
-    if len(row) == len(PDF_COLUMN_ORDER) - 1:
-        row = row[:1] + [None] + row[1:]
+    # Shift left if Ex-Showroom is blank and TCS has a full price
+    if len(row) > 2 and not row[1].strip() and re.fullmatch(r"\d{6,}", row[2]):
+        row = row[:1] + row[2:]
 
-    # Fix 2: Detect if Ex-Showroom + TCS are merged in one field
-    if len(row) >= 3 and re.fullmatch(r'\d{6,}', row[2]):
-        if not re.fullmatch(r'\d{6,}', row[1]):
-            ex_showroom = row[2][:6]
-            tcs = row[2][6:]
-            row = row[:1] + [ex_showroom, tcs] + row[3:]
-
-    # Fix 3: Pad missing tail columns
-    if len(row) < len(PDF_COLUMN_ORDER):
-        row += [None] * (len(PDF_COLUMN_ORDER) - len(row))
+    row = row[:len(PDF_COLUMN_ORDER)] + [None] * max(0, len(PDF_COLUMN_ORDER) - len(row))
 
     for i, col in enumerate(PDF_COLUMN_ORDER):
-        val = row[i].strip() if i < len(row) and row[i] else None
+        val = row[i].strip() if isinstance(row[i], str) else row[i]
         if col == "Variant":
             record[col] = clean_variant(val)
         else:
             record[col] = clean_currency(val)
+
     return record
 
 def parse_pdf(filepath, model, date_str, target_columns):
@@ -115,13 +107,13 @@ def parse_pdf(filepath, model, date_str, target_columns):
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
-            if not table or len(table) < 2:
+            if not table:
                 continue
             for row in table:
                 if not row or is_header_row(row):
                     continue
                 cleaned_row = [cell.strip() if cell else "" for cell in row]
-                if len(cleaned_row) >= len(PDF_COLUMN_ORDER) - 1:
+                if len(cleaned_row) >= len(PDF_COLUMN_ORDER):
                     record = safe_row_to_dict(cleaned_row, model, date_str)
                     extracted_data.append(record)
     return pd.DataFrame(extracted_data, columns=["Model", "Price List D."] + PDF_COLUMN_ORDER)
@@ -152,7 +144,6 @@ if uploaded_files:
 
         for file in uploaded_files:
             st.markdown(f"### \U0001F6E0️ Processing `{file.name}`")
-
             model = re.sub(r'_JULY25.*$', '', file.name).strip().replace('_', ' ')
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -199,6 +190,4 @@ if uploaded_files:
 
 # Always show latest download button
 if "excel_download" in st.session_state:
-    st.sidebar.download_button("⬇️ Download Master Excel",
-        data=st.session_state["excel_download"],
-        file_name="master_data.xlsx")
+    st.sidebar.download_button("⬇️ Download Master Excel", data=st.session_state["excel_download"], file_name="master_data.xlsx")
