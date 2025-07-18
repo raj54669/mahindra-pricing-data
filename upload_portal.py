@@ -65,6 +65,8 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
     extracted = []
     headers = target_columns[2:]
     for line in text_lines:
+        if 'MODEL' in line.upper():
+            continue  # Skip header lines
         if any(char.isdigit() for char in line):
             parts = re.split(r'\s{2,}', line.strip())
             if len(parts) >= len(headers):
@@ -74,7 +76,8 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
                 }
                 for i, col in enumerate(headers):
                     if i < len(parts):
-                        record[col] = clean_currency(parts[i])
+                        value = clean_currency(parts[i]) if col != "Variant" else parts[i].strip()
+                        record[col] = value
                 extracted.append(record)
     return pd.DataFrame(extracted, columns=target_columns)
 
@@ -91,17 +94,19 @@ def parse_pdf(filepath, model, date_str, target_columns):
             table = page.extract_table()
             if not table:
                 continue
-            for row in table[1:]:
+            for row in table[1:]:  # Skip header row
                 if not row or len(row) < 3:
                     continue
-                cleaned_row = [clean_currency(cell) for cell in row if cell]
+                cleaned_row = [cell.strip() if cell else "" for cell in row]
                 record = {
                     "Model": model,
                     "Price List D.": date_str
                 }
-                for idx, col in enumerate(cleaned_row):
+                for idx, cell in enumerate(cleaned_row):
                     if idx + 2 < len(target_columns):
-                        record[target_columns[idx + 2]] = col
+                        col = target_columns[idx + 2]
+                        value = clean_currency(cell) if col != "Variant" else cell.strip()
+                        record[col] = value
                 extracted_data.append(record)
 
     df = pd.DataFrame(extracted_data, columns=target_columns)
