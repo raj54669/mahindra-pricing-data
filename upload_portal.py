@@ -60,7 +60,7 @@ def extract_date_from_pdf(filepath):
 def clean_currency(value):
     if not value:
         return None
-    val = re.sub(r'[\u20B9,\s]', '', str(value)).strip()
+    val = re.sub(r'[^\d]', '', str(value))
     return val if val else None
 
 def clean_variant(variant):
@@ -82,10 +82,8 @@ def match_structure_and_clean(text_lines, model, date_str, target_columns):
             }
             for i, col in enumerate(headers):
                 if i < len(parts):
-                    if col == "Variant":
-                        record[col] = clean_variant(parts[i])
-                    else:
-                        record[col] = clean_currency(parts[i])
+                    val = clean_variant(parts[i]) if col == "Variant" else clean_currency(parts[i])
+                    record[col] = val
                 else:
                     record[col] = None
             extracted.append(record)
@@ -105,7 +103,6 @@ def parse_pdf(filepath, model, date_str, target_columns):
             table = page.extract_table()
             if not table or len(table) < 2:
                 continue
-            # Skip header rows explicitly
             start_idx = 1
             for i, row in enumerate(table):
                 if any(h in (cell or '').upper() for cell in row for h in ["MODEL", "EX-SHOWROOM", "RTO", "PRICE"]):
@@ -120,14 +117,11 @@ def parse_pdf(filepath, model, date_str, target_columns):
                 }
                 for i, col in enumerate(headers):
                     if i < len(cleaned_row):
-                        if col == "Variant":
-                            record[col] = clean_variant(cleaned_row[i])
-                        else:
-                            record[col] = clean_currency(cleaned_row[i])
+                        val = clean_variant(cleaned_row[i]) if col == "Variant" else clean_currency(cleaned_row[i])
+                        record[col] = val
                     else:
                         record[col] = None
                 extracted_data.append(record)
-
     df = pd.DataFrame(extracted_data, columns=target_columns)
     if df.empty:
         df = fallback_parse_with_text(filepath, model, date_str, target_columns)
@@ -155,7 +149,7 @@ with st.sidebar:
 
     if os.path.exists("master_data.xlsx"):
         with open("master_data.xlsx", "rb") as f:
-            st.download_button("⬇️ Download Master Excel", f, file_name="master_data.xlsx")
+            st.download_button("⬇️ Download Updated Master Excel", data=f.read(), file_name="master_data.xlsx")
 
 uploaded_files = st.file_uploader("Upload Mahindra Price List PDFs", type="pdf", accept_multiple_files=True)
 force_reprocess = st.checkbox("\U0001F501 Force reprocess (overwrite if exists)", value=True)
@@ -205,6 +199,9 @@ if uploaded_files:
 
             upload_to_github("master_data.xlsx", EXCEL_FILE_PATH)
             upload_to_github(tmp_path, f"{PDF_UPLOAD_PATH}/{file.name}")
+
+            with open("master_data.xlsx", "rb") as f:
+                st.download_button("⬇️ Download Updated Master Excel", data=f.read(), file_name="master_data.xlsx")
 
             st.success("✅ File processed and uploaded to GitHub.")
 
