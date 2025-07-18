@@ -61,26 +61,28 @@ def extract_date_from_pdf(filepath):
 def clean_currency(value):
     return re.sub(r'[\u20B9,\s]', '', str(value)).strip()
 
-def fallback_parse_with_text(filepath, model, date_str, target_columns):
-    extracted_data = []
-    with fitz.open(filepath) as doc:
-        for page in doc:
-            text = page.get_text()
-            lines = text.split("\n")
-            for line in lines:
-                if any(char.isdigit() for char in line) and len(line.split()) >= 4:
-                    parts = re.split(r'\s{2,}', line.strip())
-                    if len(parts) >= 3:
-                        record = {
-                            "Model": model,
-                            "Price List D.": date_str
-                        }
-                        for idx, col in enumerate(parts):
-                            if idx + 2 < len(target_columns):
-                                record[target_columns[idx + 2]] = clean_currency(col)
-                        extracted_data.append(record)
+def match_structure_and_clean(text_lines, model, date_str, target_columns):
+    extracted = []
+    headers = target_columns[2:]
+    for line in text_lines:
+        if any(char.isdigit() for char in line):
+            parts = re.split(r'\s{2,}', line.strip())
+            if len(parts) >= len(headers):
+                record = {
+                    "Model": model,
+                    "Price List D.": date_str
+                }
+                for i, col in enumerate(headers):
+                    if i < len(parts):
+                        record[col] = clean_currency(parts[i])
+                extracted.append(record)
+    return pd.DataFrame(extracted, columns=target_columns)
 
-    return pd.DataFrame(extracted_data, columns=target_columns)
+def fallback_parse_with_text(filepath, model, date_str, target_columns):
+    with fitz.open(filepath) as doc:
+        text = "\n".join([page.get_text() for page in doc])
+        lines = text.split("\n")
+    return match_structure_and_clean(lines, model, date_str, target_columns)
 
 def parse_pdf(filepath, model, date_str, target_columns):
     extracted_data = []
@@ -92,7 +94,7 @@ def parse_pdf(filepath, model, date_str, target_columns):
             for row in table[1:]:
                 if not row or len(row) < 3:
                     continue
-                cleaned_row = [clean_currency(cell) for cell in row]
+                cleaned_row = [clean_currency(cell) for cell in row if cell]
                 record = {
                     "Model": model,
                     "Price List D.": date_str
