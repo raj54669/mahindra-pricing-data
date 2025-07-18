@@ -58,54 +58,59 @@ def extract_date_from_pdf(filepath):
     return None
 
 def clean_currency(value):
-    if pd.isna(value): return value
+    if pd.isna(value):
+        return ""
     return re.sub(r'[^0-9]', '', str(value))
+
+def clean_dataframe(df):
+    df = df.dropna(how='all')
+    df.columns = df.iloc[0]
+    df = df[1:].copy()
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.loc[:, df.columns.notna()]
+    df = df.reset_index(drop=True)
+    return df
+
+def map_headers(columns, target_columns):
+    matched = {}
+    for col in columns:
+        close = get_close_matches(col.strip(), target_columns[2:], n=1, cutoff=0.6)
+        if close:
+            matched[col] = close[0]
+    return matched
 
 def parse_pdf(filepath, model, date_str, target_columns):
     all_data = []
-
-    def match_headers(columns):
-        matched = {}
-        for col in columns:
-            close = get_close_matches(col, target_columns[2:], n=1, cutoff=0.6)
-            if close:
-                matched[col] = close[0]
-        return matched
-
     for flavor in ['lattice', 'stream']:
         tables = camelot.read_pdf(filepath, pages='all', flavor=flavor, strip_text="\n")
         for table in tables:
             df = table.df
-            df.columns = df.iloc[0]
-            df = df[1:].copy()
-
-            matched_headers = match_headers(df.columns)
+            if df.empty or len(df.columns) < 5:
+                continue
+            df = clean_dataframe(df)
+            matched_headers = map_headers(df.columns, target_columns)
             if len(matched_headers) >= 5:
                 df = df.rename(columns=matched_headers)
                 df = df[[*matched_headers.values()]]
                 df.insert(0, 'Price List D.', date_str)
                 df.insert(0, 'Model', model)
-
                 for col in df.columns:
                     df[col] = df[col].apply(clean_currency)
-
                 for col in target_columns:
                     if col not in df.columns:
                         df[col] = ""
                 df = df[target_columns]
                 all_data.append(df)
-
         if all_data:
             break
-
     return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame(columns=target_columns)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Mahindra Price List Uploader")
-st.title("🚗 Mahindra Price List Uploader")
+st.title("\U0001F697 Mahindra Price List Uploader")
 
 with st.sidebar:
-    st.markdown("### 📂 Upload History")
+    st.markdown("### \U0001F4C2 Upload History")
     if "history" not in st.session_state:
         st.session_state["history"] = []
     if st.session_state["history"]:
