@@ -20,14 +20,15 @@ repo = get_github_repo()
 excel_path = st.secrets["EXCEL_PATH"]
 pdf_dir = st.secrets["PDF_UPLOAD_PATH"]
 
-# ---- Load master Excel (try first)
+# ---- Load master Excel from GitHub
 try:
     master_io, master_sha = download_file_from_repo(repo, excel_path)
     df_master = pd.read_excel(master_io)
 except Exception:
-    df_master = pd.DataFrame(columns=["Model", "Price List D."])  # Empty base
+    st.warning("⚠️ Master Excel not found in GitHub. Creating a new one.")
+    df_master = pd.DataFrame(columns=["Model", "Price List D."])  # Will expand dynamically
 
-# ---- Sidebar: Upload history
+# ---- Sidebar: Upload history + Excel download
 with st.sidebar:
     st.header("📂 Upload History")
     if df_master.empty:
@@ -68,7 +69,7 @@ if st.button("🚀 Process Files") and uploaded_files:
         df_new = parse_table(uploaded)
         uploaded.seek(0)
 
-        # Validate
+        # Validate inputs
         if not effective_date:
             st.error("❌ Could not extract effective date.")
             continue
@@ -89,6 +90,11 @@ if st.button("🚀 Process Files") and uploaded_files:
         df_new.insert(0, "Price List D.", effective_date)
         df_new.insert(0, "Model", model)
 
+        # 🛠 Fix: Ensure unique + matching columns before concat
+        df_new.columns = pd.io.parsers.ParserBase({'names': df_new.columns})._maybe_dedup_names(df_new.columns)
+        df_master.columns = pd.io.parsers.ParserBase({'names': df_master.columns})._maybe_dedup_names(df_master.columns)
+        df_new = df_new[df_master.columns]
+
         # Append to master
         df_master = pd.concat([df_master, df_new], ignore_index=True)
 
@@ -96,14 +102,20 @@ if st.button("🚀 Process Files") and uploaded_files:
         try:
             output_excel = BytesIO()
             df_master.to_excel(output_excel, index=False)
-            upload_or_update_file(repo, excel_path, output_excel, f"Update master_data.xlsx with {model} {effective_date}")
+            upload_or_update_file(
+                repo, excel_path, output_excel,
+                f"Update master_data.xlsx with {model} {effective_date}"
+            )
         except Exception as e:
             st.error(f"❌ Failed to update Excel on GitHub: {e}")
             continue
 
         # Upload raw PDF to GitHub
         try:
-            upload_or_update_file(repo, f"{pdf_dir}/{uploaded.name}", uploaded, f"Upload PDF: {uploaded.name}")
+            upload_or_update_file(
+                repo, f"{pdf_dir}/{uploaded.name}", uploaded,
+                f"Upload PDF: {uploaded.name}"
+            )
         except Exception as e:
             st.error(f"❌ Failed to upload PDF to GitHub: {e}")
             continue
