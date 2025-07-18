@@ -12,7 +12,7 @@ from scripts.pdf_parser import (
     parse_table
 )
 
-st.set_page_config(page_title="Mahindra PDF Uploader", layout="wide")
+st.set_page_config(page_title="Mahindra Price List Uploader", layout="wide")
 st.title("🚘 Mahindra Price List Uploader")
 
 # ---- GitHub setup
@@ -72,17 +72,20 @@ if st.button("🚀 Process Files") and uploaded_files:
         df_new.insert(0, "Price List D.", effective_date)
         df_new.insert(0, "Model", model)
 
-        # Normalize column names
+        # Normalize columns
         df_new.columns = df_new.columns.str.strip()
         df_master.columns = df_master.columns.str.strip()
 
-        # Validate: All required columns must be present
-        if not all(col in df_new.columns for col in df_master.columns):
+        # 🛠 Force headers if column count matches master
+        if df_new.shape[1] == len(df_master.columns):
+            df_new.columns = df_master.columns
+        else:
+            # Check for missing headers
             missing = [col for col in df_master.columns if col not in df_new.columns]
             st.error(f"❌ Missing columns in parsed data: {missing}")
             continue
 
-        # Check duplicate entry
+        # Duplicate check
         is_duplicate = not df_master[
             (df_master["Model"] == model) &
             (df_master["Price List D."] == effective_date)
@@ -91,12 +94,9 @@ if st.button("🚀 Process Files") and uploaded_files:
             st.warning("⚠️ Duplicate entry. Skipping.")
             continue
 
-        # Align and append
-        df_new = df_new[df_master.columns]
-        df_master = pd.concat([df_master, df_new], ignore_index=True)
-
-        # Upload Excel to GitHub
+        # Append and push Excel
         try:
+            df_master = pd.concat([df_master, df_new], ignore_index=True)
             out_excel = BytesIO()
             df_master.to_excel(out_excel, index=False)
             upload_or_update_file(
@@ -107,7 +107,7 @@ if st.button("🚀 Process Files") and uploaded_files:
             st.error(f"❌ Failed to update Excel: {e}")
             continue
 
-        # Upload PDF to GitHub
+        # Upload PDF
         try:
             upload_or_update_file(
                 repo, f"{pdf_dir}/{uploaded.name}", uploaded,
